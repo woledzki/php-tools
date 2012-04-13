@@ -2,75 +2,33 @@
 echo "vendors.php    by Wojtek Oledzki\n";
 set_time_limit(0);
 
-$defaults = array(
-	'config' => 'vendors.ini',
-	'branch' => 'master',
-	'vendors-dir' => './',
-);
-
-$options = getopt(
-	'c:t:v:b:g:h',
-array('config:', 'transport:', 'vendors-dir:', 'branch:', 'tag:', 'help')
-);
-
-$optionsMap = array(
-	'h' => 'help',
-	'c' => 'config',
-	't' => 'transport',
-	'v' => 'vendors-dir',
-	'g' => 'tag',
-	'b' => 'branch',
-);
-
-foreach ($options as $option => $value) {
-	if (isset($optionsMap[$option])) {
-		if (!isset($options[$optionsMap[$option]])) {
-			$options[$optionsMap[$option]] = $value;
+function processVendors($vendors, $options) {
+	foreach ($vendors as $name => $vendor) {
+		foreach (array('git', 'target') as $key) {
+			if (empty($vendor[$key])) {
+				echo "missing `{$key}` url. Skipping\n";
+				continue;
+			}
 		}
-		unset($options[$option]);
-	}
-}
-$options += $defaults;
 
-if (isset($options['help'])) {
-	printHelp();
-	exit(0);
-}
+		$url = $vendor['git'];
+		$rev = empty($vendor['branch']) ? $options['branch'] : $vendor['branch'];
 
-$vendors = array();
-if (is_readable($options['config'])) {
-	$vendors = parse_ini_file($options['config'], true);
-} else {
-	echo "  Config file `{$options['config']}` not readable\n";
-	printHelp();
-	exit(1);
-}
-
-foreach ($vendors as $name => $vendor) {
-	foreach (array('git', 'target') as $key) {
-		if (empty($vendor[$key])) {
-			echo "missing `{$key}` url. Skipping\n";
-			continue;
+		if (!empty($options['transport'])) {
+			$url = preg_replace('/^(http:|https:|git:)(.*)/', $options['transport'] . ':$2', $url);
 		}
+
+		$installDir = $options['vendors-dir'] . '/' . $vendor['target'];
+		if (!is_dir($installDir)) {
+			echo "  Installing $name ({$url})...\n";
+			system(sprintf('git clone %s %s', escapeshellarg($url), escapeshellarg($installDir)));
+		}
+
+		echo '  Updating ' . stringBold($name) . " ({$url} {$rev})...\n";
+		system(sprintf('cd %s && git fetch origin && git reset --hard %s',
+		escapeshellarg($installDir), escapeshellarg($rev)));
+		echo "\n";
 	}
-
-	$url = $vendor['git'];
-	$rev = empty($vendor['branch']) ? $options['branch'] : $vendor['branch'];
-
-	if (!empty($options['transport'])) {
-		$url = preg_replace('/^(http:|https:|git:)(.*)/', $options['transport'] . ':$2', $url);
-	}
-
-	$installDir = $options['vendors-dir'] . '/' . $vendor['target'];
-	if (!is_dir($installDir)) {
-		echo "  Installing $name ({$url})...\n";
-		system(sprintf('git clone %s %s', escapeshellarg($url), escapeshellarg($installDir)));
-	}
-
-	echo '  Updating ' . stringBold($name) . " ({$url} {$rev})...\n";
-	system(sprintf('cd %s && git fetch origin && git reset --hard %s',
-			escapeshellarg($installDir), escapeshellarg($rev)));
-	echo "\n";
 }
 
 function stringBold($msg) {
@@ -87,3 +45,59 @@ function printHelp() {
   -h (--help) prints this message
 ";
 }
+
+function getOptions() {
+	$defaults = array(
+		'config' => 'vendors.ini',
+		'branch' => 'master',
+		'vendors-dir' => './',
+	);
+
+	$options = getopt(
+		'c:t:v:b:g:h',
+	array('config:', 'transport:', 'vendors-dir:', 'branch:', 'tag:', 'help')
+	);
+
+	$optionsMap = array(
+		'h' => 'help',
+		'c' => 'config',
+		't' => 'transport',
+		'v' => 'vendors-dir',
+		'g' => 'tag',
+		'b' => 'branch',
+	);
+
+	foreach ($options as $option => $value) {
+		if (isset($optionsMap[$option])) {
+			if (!isset($options[$optionsMap[$option]])) {
+				$options[$optionsMap[$option]] = $value;
+			}
+			unset($options[$option]);
+		}
+	}
+	$options += $defaults;
+
+	return $options;
+}
+
+function main() {
+	$options = getOptions();
+	if (isset($options['help'])) {
+		printHelp();
+		return 0;
+	}
+
+	$vendors = array();
+	if (is_readable($options['config'])) {
+		$vendors = parse_ini_file($options['config'], true);
+	} else {
+		echo "  Config file `{$options['config']}` not readable\n";
+		printHelp();
+		return 1;
+	}
+
+	processVendors($vendors, $options);
+	return 0;
+}
+
+exit(main());
